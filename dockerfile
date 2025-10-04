@@ -9,6 +9,9 @@ COPY pnpm-workspace.yaml ./
 COPY package.json ./
 COPY pnpm-lock.yaml ./
 
+# Copiar la configuración base de TypeScript para que los paquetes (schemas, common, etc.)
+COPY tsconfig.json ./
+
 # Copiar los archivos de configuración del frontend
 COPY apps/agro-repo-frontend/package.json apps/agro-repo-frontend/
 
