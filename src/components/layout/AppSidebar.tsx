@@ -17,7 +17,7 @@ const navItems: NavItem[] = [
   {
     icon: <BiGrid />,
     name: "Dashboard",
-    subItems: [{ name: "Ecommerce", path: "/", pro: false }],
+    subItems: [{ name: "Parcelas", path: "/admin/dashboard", pro: false }],
   },
   {
     icon: <BiCalendar />,
