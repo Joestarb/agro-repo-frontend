@@ -1,26 +1,34 @@
 import { useState } from "react";
+import { useDispatch } from "react-redux";
+import { useNavigate } from "react-router-dom";
+import { useLoginMutation } from "../../../../services/api";
+import { setToken } from "../../../../slices/authSlice";
 import Input from "../../../../components/common/Input";
 import Button from "../../../../components/common/Button";
 
 const AdminLoginForm = () => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
-
+    const navigate = useNavigate();
+    const dispatch = useDispatch();
+    const [login, {isLoading}] = useLoginMutation();
+    
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setIsLoading(true);
         setError("");
 
         try {
-        console.log("Login attempt with:", { email, password });
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const result = await login({ email, password }).unwrap();
+        dispatch(setToken(result.access_token));
+        // Guarda el token en localStorage
+        console.log("Token recibido:", result.access_token);
+        localStorage.setItem("access_token", result.access_token);
+        navigate("/admin/dashboard");
         } catch (err) {
         console.log(err);
         setError("Error al iniciar sesión. Por favor verifica tus credenciales.");
-        } finally {
-        setIsLoading(false);
         }
     };
 
@@ -29,13 +37,13 @@ const AdminLoginForm = () => {
             <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
                 {/* Encabezado */}
                 <div className="text-center mb-8">
-                <img
+                {/* <img
                     src={''}
                     alt="Logo"
                     className="mx-auto mb-4"
-                />
+                /> */}
 
-                    <h3 className="text-2xl font-bold text-blue-800">Ingresar</h3>
+                    <h3 className="text-2xl font-bold text-green-800">Ingresar</h3>
 
                 </div>
 
@@ -76,7 +84,7 @@ const AdminLoginForm = () => {
                     type="submit"
                     disabled={isLoading}
                     variant="primary"
-                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                     {isLoading ? "Iniciando sesión..." : "Iniciar sesión"}
                     </Button>
@@ -102,4 +110,4 @@ const AdminLoginForm = () => {
     );
     };
 
-    export default AdminLoginForm;
+export default AdminLoginForm;

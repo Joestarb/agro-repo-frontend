@@ -12,12 +12,12 @@ import {
 import { Link, useLocation } from "react-router";
 import { NavItem } from "../../interfaces/pages/sidebar";
 import { useSidebar } from "../../store/SidebarContext";
-
+import logo from '../../assets/logo.png'
 const navItems: NavItem[] = [
   {
     icon: <BiGrid />,
     name: "Dashboard",
-    subItems: [{ name: "Ecommerce", path: "/", pro: false }],
+    subItems: [{ name: "dashboard", path: "/admin/dashboard" }, { name: "Parcelas", path: "/admin/parcelas", pro: false }],
   },
   {
     icon: <BiCalendar />,
@@ -268,10 +268,10 @@ const AppSidebar: React.FC = () => {
         <Link to="/">
           {isExpanded || isHovered || isMobileOpen ? (
             <>
-              <img className="" src={'logo'} alt="'Logo'" width={150} height={40} />
+              <img className="" src={logo} alt="'Logo'" width={150} height={40} />
             </>
           ) : (
-            <img src={'escudo'} alt="'Logo'" width={32} height={32} />
+            <img src={logo} alt="'Logo'" width={32} height={32} />
           )}
         </Link>
       </div>  

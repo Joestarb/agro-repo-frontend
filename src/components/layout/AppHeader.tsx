@@ -6,6 +6,7 @@ import NotificationDropdown from "../common/NotificationDropdown";
 import UserDropdown from "../common/UserDropdown";
 import ThemeToggleButton from "../common/ThemeToggleButton";
 import { FiAlignJustify } from "react-icons/fi";
+import logo from '../../assets/logo.png'
 const AppHeader: React.FC = () => {
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);
 
@@ -60,7 +61,7 @@ const AppHeader: React.FC = () => {
           <Link to="/" >
             <img
               className=" w-40 lg:hidden"
-              src={''}
+              src={logo}
               alt="Logo"
             />
 
