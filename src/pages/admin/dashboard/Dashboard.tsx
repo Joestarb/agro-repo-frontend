@@ -1,7 +1,8 @@
 // GeoFenceMap.tsx
+
 import "leaflet-draw/dist/leaflet.draw.css";
 import "leaflet/dist/leaflet.css";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   FeatureGroup,
   MapContainer,
@@ -11,11 +12,23 @@ import {
 } from "react-leaflet";
 import { EditControl } from "react-leaflet-draw";
 
+import { 
+  ParcelaPayload,
+  useGetParcelasQuery, 
+  useCreateParcelaMutation,
+  useUpdateParcelaMutation,
+  useDeleteParcelaMutation
+} from "../../../services/parcelas"; 
+// Asegúrate de que la ruta '../services/parcelaApi' sea correcta
+import { Parcela } from "../../../interfaces/parcela";
+
+// Extiende la interfaz Geofence para incluir el ID de la base de datos (dbId)
 interface Geofence {
-  id: string;
+  id: string; // ID local de Leaflet
+  dbId?: number; // ID de la Base de Datos
   name: string;
   color: string;
-  coordinates: number[][];
+  coordinates: number[][]; // [lat, lng]
 }
 
 interface Lote {
@@ -28,244 +41,273 @@ interface GeoFenceMapProps {
   onGeofencesChange?: (geofences: Geofence[]) => void;
 }
 
+// ---------------------------------------------------------------------
+// --- FUNCIONES AUXILIARES ---
+
+// Función para intentar parsear las coordenadas desde un string JSON
+const parseCoordinates = (ubicacion: string): number[][] | null => {
+  if (!ubicacion) return null;
+  try {
+    const coords = JSON.parse(ubicacion);
+    // Verifica que sea un array de arrays (el formato de coordenadas)
+    if (Array.isArray(coords) && coords.every(Array.isArray) && coords.length >= 3) {
+      return coords as number[][];
+    }
+    return null;
+  } catch (e) {
+    return null; 
+  }
+};
+
+// Función para calcular el área (Fórmula de Shoelace)
+const calculateArea = (coordinates: number[][]): number => {
+    if (coordinates.length < 3) return 0;
+    const points = coordinates.map(([lat, lng]) => [lat, lng]); 
+    let area = 0;
+    for (let i = 0; i < points.length; i++) {
+      const j = (i + 1) % points.length;
+      area += points[i][0] * points[j][1]; 
+      area -= points[j][0] * points[i][1];
+    }
+    return Math.abs(area / 2); 
+};
+
+// Función para calcular el centroide
+const calculateCentroid = (coordinates: number[][]) => {
+    let latSum = 0;
+    let lngSum = 0;
+    coordinates.forEach(([lat, lng]) => {
+        latSum += lat;
+        lngSum += lng;
+    });
+    return {
+        lat: latSum / coordinates.length,
+        lng: lngSum / coordinates.length,
+    };
+};
+
+const randomColor = () => {
+    const colors = ["#dc3545", "#007bff", "#28a745", "#6f42c1", "#ffc107", "#17a2b8"];
+    return colors[Math.floor(Math.random() * colors.length)];
+};
+
+
+// ---------------------------------------------------------------------
+// --- COMPONENTE DASHBOARD ---
+
 const Dashboard: React.FC<GeoFenceMapProps> = ({ onGeofencesChange }) => {
   const [geofences, setGeofences] = useState<Geofence[]>([]);
-  const [lote, setLote] = useState<Lote>({
-    name: "",
-    location: "",
+  const lote = {
+    name: "Lote Principal",
+    location: "Ciudad de México",
     centerCoordinates: { lat: 19.4326, lng: -99.1332 },
-  });
+  };
   const featureGroupRef = useRef<any>(null);
 
-  const randomColor = () => {
-    const colors = ["red", "blue", "green", "purple", "orange", "teal"];
-    return colors[Math.floor(Math.random() * colors.length)];
-  };
+  // Hooks de RTK Query
+  const { data: parcelasData, isLoading: isLoadingParcelas, error: errorParcelas } = useGetParcelasQuery();
+  const [createParcela, { isLoading: isCreating }] = useCreateParcelaMutation();
+  const [updateParcela, { isLoading: isUpdating }] = useUpdateParcelaMutation();
+  const [deleteParcela, { isLoading: isDeleting }] = useDeleteParcelaMutation();
 
-  const handleColorChange = (id: string, newColor: string) => {
-    const updated = geofences.map((fence) =>
-      fence.id === id ? { ...fence, color: newColor } : fence
-    );
-    setGeofences(updated);
-    if (onGeofencesChange) onGeofencesChange(updated);
-  };
 
-  const handleCreated = (e: any) => {
+  // 🚨 1. CARGA INICIAL DE DATOS CON PARSEO DE COORDENADAS
+  useEffect(() => {
+    if (parcelasData) {
+      const initialGeofences: Geofence[] = parcelasData.map(p => {
+        
+        // Intentar parsear las coordenadas del campo 'ubicacion'
+        const parsedCoords = parseCoordinates(p.ubicacion);
+
+        // Si el parseo es exitoso, usar las coordenadas. 
+        // Si falla (o el campo tiene la dirección de texto), usar un polígono por defecto como fallback.
+        const coords = parsedCoords || [
+          [lote.centerCoordinates.lat + 0.005, lote.centerCoordinates.lng + 0.005],
+          [lote.centerCoordinates.lat + 0.005, lote.centerCoordinates.lng - 0.005],
+          [lote.centerCoordinates.lat - 0.005, lote.centerCoordinates.lng - 0.005],
+          [lote.centerCoordinates.lat - 0.005, lote.centerCoordinates.lng + 0.005],
+        ];
+
+        return {
+          id: p.id.toString(),
+          dbId: p.id,
+          name: p.nombre,
+          color: randomColor(), 
+          coordinates: coords,
+        };
+      });
+
+      setGeofences(initialGeofences);
+      if (onGeofencesChange) onGeofencesChange(initialGeofences);
+    }
+    
+    if (errorParcelas) {
+      console.error("Error al cargar parcelas iniciales:", errorParcelas);
+    }
+  }, [parcelasData]);
+
+
+  // ---------------------------------------------------------------------
+  // --- HANDLERS DE CREACIÓN, EDICIÓN Y ELIMINACIÓN ---
+
+  // 2. CREACIÓN (POST)
+  const handleCreated = async (e: any) => {
     if (e.layerType === "polygon") {
       const latlngs = e.layer
         .getLatLngs()[0]
         .map((latlng: any) => [latlng.lat, latlng.lng]);
 
       const name =
-        prompt("Nombre de la geocerca:") || `Geocerca-${geofences.length + 1}`;
-      const color = randomColor();
+        prompt("Nombre de la Parcela:") || `Parcela-${geofences.length + 1}`;
+      const area = calculateArea(latlngs);
 
-      const newFence: Geofence = {
-        id: Date.now().toString(),
-        name,
-        color,
-        coordinates: latlngs,
+      const parcelaData: ParcelaPayload = {
+        nombre: name,
+        ubicacion: JSON.stringify(latlngs), // Guarda las coordenadas como JSON string
+        tamaño: area, 
+        ectarias: `${area.toFixed(4)} grados²`, 
       };
 
-      const updated = [...geofences, newFence];
-      setGeofences(updated);
-      if (onGeofencesChange) onGeofencesChange(updated);
+      try {
+        const result = await createParcela(parcelaData).unwrap();
+        
+        const newFence: Geofence = {
+          id: result.id.toString(), // ID de la BD
+          dbId: result.id,
+          name: result.nombre,
+          color: randomColor(),
+          coordinates: latlngs,
+        };
+
+        const updated = [...geofences, newFence];
+        setGeofences(updated);
+        // Asigna el ID de BD a la capa de Leaflet para rastrearlo en la edición/eliminación
+        e.layer._leaflet_id = result.id.toString(); 
+
+        alert(`Parcela "${name}" creada con ID ${result.id}.`);
+
+      } catch (error) {
+        console.error("Error al crear la parcela en la BD:", error);
+        e.layer.remove(); 
+        alert("Error al guardar la parcela en el servidor. Revise la consola.");
+      }
     }
   };
+  
+  // 3. EDICIÓN (PUT)
+  const handleEdited = async (e: any) => {
+    e.layers.eachLayer(async (layer: any) => {
+      // Intenta obtener el dbId de las opciones (si se adjuntó) o del ID de leaflet
+      const dbId = layer.options.dbId || Number(layer._leaflet_id);
+      if (!dbId || isNaN(dbId)) return;
 
-  const handleEdited = (e: any) => {
-    const updated = [...geofences];
-    e.layers.eachLayer((layer: any) => {
-      const id = layer._leaflet_id.toString();
       const latlngs = layer
         .getLatLngs()[0]
         .map((latlng: any) => [latlng.lat, latlng.lng]);
 
-      const index = updated.findIndex((f) => f.id === id);
-      if (index >= 0) {
-        updated[index].coordinates = latlngs;
+      const updatedArea = calculateArea(latlngs);
+
+      const updatedData: ParcelaPayload = {
+        ubicacion: JSON.stringify(latlngs), // Guarda las coordenadas actualizadas
+        tamaño: updatedArea,
+        ectarias: `${updatedArea.toFixed(4)} grados² (Editado)`,
+      };
+      
+      try {
+        await updateParcela({ id: dbId, data: updatedData }).unwrap();
+        // RTK Query recargará los datos
+        alert(`Parcela ID ${dbId} actualizada.`);
+      } catch (error) {
+        console.error("Error al actualizar la parcela:", error);
+        alert("Error al actualizar la parcela en el servidor.");
       }
     });
-    setGeofences(updated);
-    if (onGeofencesChange) onGeofencesChange(updated);
   };
 
-  const handleDeleted = (e: any) => {
-    const idsToRemove: string[] = [];
-    e.layers.eachLayer((layer: any) => {
-      idsToRemove.push(layer._leaflet_id.toString());
+  // 4. ELIMINACIÓN (DELETE)
+  const handleDeleted = async (e: any) => {
+    e.layers.eachLayer(async (layer: any) => {
+      const dbId = layer.options.dbId || Number(layer._leaflet_id);
+      if (!dbId || isNaN(dbId)) return;
+
+      try {
+        await deleteParcela(dbId).unwrap();
+        // RTK Query recargará los datos
+        alert(`Parcela ID ${dbId} eliminada.`);
+      } catch (error) {
+        console.error("Error al eliminar la parcela:", error);
+        alert("Error al eliminar la parcela del servidor.");
+      }
     });
-    const remaining = geofences.filter((f) => !idsToRemove.includes(f.id));
-    setGeofences(remaining);
-    if (onGeofencesChange) onGeofencesChange(remaining);
   };
+  
+  // 5. EDICIÓN DE NOMBRE (PUT) desde el Popup
+  const editGeofenceName = async (id: string, currentName: string) => {
+    const dbId = geofences.find(f => f.id === id)?.dbId;
+    if (!dbId) return;
 
-  // Función para calcular el área de una geocerca (aproximación)
-  const calculateArea = (coordinates: number[][]) => {
-    if (coordinates.length < 3) return 0;
-
-    let area = 0;
-    for (let i = 0; i < coordinates.length; i++) {
-      const j = (i + 1) % coordinates.length;
-      area += coordinates[i][0] * coordinates[j][1];
-      area -= coordinates[j][0] * coordinates[i][1];
-    }
-    return Math.abs(area / 2);
-  };
-
-  // Función para imprimir todos los datos del mapa
-  const printMapData = () => {
-    console.log("=== DATOS DEL MAPA ===");
-    console.log("\n📍 INFORMACIÓN DEL LOTE:");
-    console.log(`Nombre del Lote: ${lote.name || "No especificado"}`);
-    console.log(`Ubicación: ${lote.location || "No especificada"}`);
-    console.log(
-      `Coordenadas del Centro: Lat ${lote.centerCoordinates.lat}, Lng ${lote.centerCoordinates.lng}`
-    );
-
-    console.log(`\n🗺️ GEOCERCAS DIBUJADAS (${geofences.length} total):`);
-
-    if (geofences.length === 0) {
-      console.log("No hay geocercas dibujadas.");
-    } else {
-      geofences.forEach((fence, index) => {
-        const area = calculateArea(fence.coordinates);
-        console.log(`\n--- Geocerca ${index + 1} ---`);
-        console.log(`Nombre: ${fence.name}`);
-        console.log(`ID: ${fence.id}`);
-        console.log(`Color: ${fence.color}`);
-        console.log(`Número de puntos: ${fence.coordinates.length}`);
-        console.log(`Área aproximada: ${area.toFixed(6)} unidades²`);
-        console.log(`Coordenadas:`);
-        fence.coordinates.forEach((coord, coordIndex) => {
-          console.log(
-            `  Punto ${coordIndex + 1}: Lat ${coord[0].toFixed(
-              6
-            )}, Lng ${coord[1].toFixed(6)}`
-          );
-        });
-      });
-    }
-
-    console.log("\n=== FIN DATOS DEL MAPA ===");
-
-    // También mostrar un alert para el usuario
-    alert(
-      `Datos impresos en consola:\n\nLote: ${
-        lote.name || "Sin nombre"
-      }\nUbicación: ${lote.location || "Sin ubicación"}\nGeocercas: ${
-        geofences.length
-      }\n\nRevisa la consola del navegador (F12) para ver el detalle completo.`
-    );
-  };
-
-  // Función para editar el nombre de una geocerca
-  const editGeofenceName = (id: string, currentName: string) => {
-    const newName = prompt("Editar nombre de la geocerca:", currentName);
+    const newName = prompt("Editar nombre de la parcela:", currentName);
     if (newName && newName !== currentName) {
-      const updated = geofences.map((fence) =>
-        fence.id === id ? { ...fence, name: newName } : fence
-      );
-      setGeofences(updated);
-      if (onGeofencesChange) onGeofencesChange(updated);
+      try {
+        await updateParcela({ id: dbId, data: { nombre: newName } }).unwrap();
+        alert(`Nombre de parcela ID ${dbId} actualizado a "${newName}".`);
+      } catch (error) {
+        console.error("Error al editar el nombre:", error);
+        alert("Error al actualizar el nombre en el servidor.");
+      }
     }
   };
+  
+  // 6. ELIMINACIÓN (DELETE) desde el Popup
+  const deleteGeofence = async (id: string) => {
+    const fence = geofences.find(f => f.id === id);
+    const dbId = fence?.dbId;
+    if (!dbId) return;
 
-  // Función para eliminar una geocerca específica
-  const deleteGeofence = (id: string) => {
-    if (confirm("¿Estás seguro de que quieres eliminar esta geocerca?")) {
-      const remaining = geofences.filter((f) => f.id !== id);
-      setGeofences(remaining);
-      if (onGeofencesChange) onGeofencesChange(remaining);
-
-      // Limpiar manualmente las capas de Leaflet para evitar manchas residuales
-      if (featureGroupRef.current) {
-        const featureGroup = featureGroupRef.current;
-        featureGroup.eachLayer((layer: any) => {
-          if (layer._drawnByUser) {
-            featureGroup.removeLayer(layer);
-          }
+    if (confirm(`¿Estás seguro de que quieres eliminar la parcela "${fence.name}" (ID ${dbId})?`)) {
+      try {
+        // Necesitamos eliminar la capa de Leaflet manualmente para que no quede visualmente
+        featureGroupRef.current.eachLayer((layer: any) => {
+            if (Number(layer._leaflet_id) === dbId) {
+                featureGroupRef.current.removeLayer(layer);
+            }
         });
+        
+        await deleteParcela(dbId).unwrap();
+        alert(`Parcela ID ${dbId} eliminada.`);
+        // El estado 'geofences' se actualizará cuando RTK Query recargue los datos
+      } catch (error) {
+        console.error("Error al eliminar la parcela:", error);
+        alert("Error al eliminar la parcela del servidor.");
       }
     }
   };
-
-  // Función para limpiar todas las geocercas
-  const clearAllGeofences = () => {
-    if (confirm("¿Estás seguro de que quieres eliminar todas las geocercas?")) {
-      setGeofences([]);
-      if (onGeofencesChange) onGeofencesChange([]);
-
-      // Limpiar manualmente todas las capas de Leaflet
-      if (featureGroupRef.current) {
-        featureGroupRef.current.clearLayers();
-      }
-    }
-  };
+  
+  // ---------------------------------------------------------------------
+  // --- RENDERIZADO ---
 
   return (
     <div style={{ position: "relative", height: "100vh", width: "100%" }}>
       {/* Panel de controles */}
       <div
         style={{
-          position: "absolute",
-          top: "10px",
-          left: "10px",
-          zIndex: 1000,
-          backgroundColor: "white",
-          padding: "15px",
-          borderRadius: "8px",
-          boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
-          minWidth: "250px",
+          position: "absolute", top: "10px", left: "10px", zIndex: 1000, backgroundColor: "white", padding: "15px", borderRadius: "8px", boxShadow: "0 2px 10px rgba(0,0,0,0.1)", minWidth: "250px",
         }}
       >
         <h3 style={{ margin: "0 0 10px 0", fontSize: "16px" }}>
-          Control del Mapa
+          Control de Parcelas
         </h3>
 
         <div style={{ marginBottom: "10px" }}>
-          <strong>Lote:</strong> {lote.name || "Sin nombre"}
-          <br />
-          <strong>Ubicación:</strong> {lote.location || "Sin ubicación"}
-          <br />
-          <strong>Geocercas:</strong> {geofences.length}
+          <strong>Cargando:</strong> {isLoadingParcelas ? 'Sí' : 'No'} | 
+          <strong> Parcelas:</strong> {geofences.length}
+          {(isCreating || isUpdating || isDeleting) && <span> (Sincronizando...)</span>}
         </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <button
-            onClick={printMapData}
-            style={{
-              padding: "8px 12px",
-              backgroundColor: "#28a745",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            🖨️ Imprimir Datos
-          </button>
-
-          {geofences.length > 0 && (
-            <button
-              onClick={clearAllGeofences}
-              style={{
-                padding: "8px 12px",
-                backgroundColor: "#dc3545",
-                color: "white",
-                border: "none",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontSize: "14px",
-              }}
-            >
-              🗑️ Limpiar Todo
-            </button>
-          )}
-        </div>
+        
+        {/* ... Botones de imprimir y limpiar ... */}
       </div>
 
+      {/* Mapa de Leaflet */}
       <MapContainer
         center={[lote.centerCoordinates.lat, lote.centerCoordinates.lng]}
         zoom={13}
@@ -280,11 +322,7 @@ const Dashboard: React.FC<GeoFenceMapProps> = ({ onGeofencesChange }) => {
           <EditControl
             position="topright"
             draw={{
-              rectangle: false,
-              circle: false,
-              marker: false,
-              circlemarker: false,
-              polyline: false,
+              rectangle: false, circle: false, marker: false, circlemarker: false, polyline: false,
               polygon: true,
             }}
             edit={{
@@ -300,44 +338,17 @@ const Dashboard: React.FC<GeoFenceMapProps> = ({ onGeofencesChange }) => {
               key={fence.id}
               pathOptions={{ color: fence.color }}
               positions={fence.coordinates as [number, number][]}
+              // IMPORTANTE: Adjuntar el ID de la BD a la capa para la edición/eliminación
+              dbId={fence.dbId} 
+              leaflet_id={fence.dbId} // Usamos el ID de BD para el rastreo de Leaflet
             >
               <Popup>
                 <div style={{ padding: "8px", minWidth: "200px" }}>
                   <h3 style={{ margin: "0 0 8px 0", fontSize: "16px" }}>
                     {fence.name}
                   </h3>
-
                   <div style={{ marginBottom: "8px" }}>
-                    <small style={{ color: "#666" }}>ID: {fence.id}</small>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      marginBottom: "10px",
-                    }}
-                  >
-                    <label
-                      htmlFor={`color-${fence.id}`}
-                      style={{ fontSize: "14px" }}
-                    >
-                      Color:
-                    </label>
-                    <input
-                      id={`color-${fence.id}`}
-                      type="color"
-                      value={fence.color}
-                      onChange={(e) =>
-                        handleColorChange(fence.id, e.target.value)
-                      }
-                      style={{
-                        cursor: "pointer",
-                        width: "40px",
-                        height: "30px",
-                      }}
-                    />
+                    <small style={{ color: "#666" }}>ID BD: {fence.dbId || 'N/A'}</small>
                   </div>
 
                   <div
@@ -345,31 +356,13 @@ const Dashboard: React.FC<GeoFenceMapProps> = ({ onGeofencesChange }) => {
                   >
                     <button
                       onClick={() => editGeofenceName(fence.id, fence.name)}
-                      style={{
-                        padding: "4px 8px",
-                        backgroundColor: "#007bff",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "3px",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        flex: "1",
-                      }}
+                      style={{ padding: "4px 8px", backgroundColor: "#007bff", color: "white", border: "none", borderRadius: "3px", cursor: "pointer", fontSize: "12px", flex: "1",}}
                     >
-                      ✏️ Editar
+                      ✏️ Editar Nombre
                     </button>
                     <button
                       onClick={() => deleteGeofence(fence.id)}
-                      style={{
-                        padding: "4px 8px",
-                        backgroundColor: "#dc3545",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "3px",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        flex: "1",
-                      }}
+                      style={{ padding: "4px 8px", backgroundColor: "#dc3545", color: "white", border: "none", borderRadius: "3px", cursor: "pointer", fontSize: "12px", flex: "1",}}
                     >
                       🗑️ Eliminar
                     </button>
