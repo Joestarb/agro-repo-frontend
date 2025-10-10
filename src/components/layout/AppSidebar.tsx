@@ -3,11 +3,8 @@ import {
   BiCalendar,
   BiChevronDown,
   BiDotsHorizontal,
-  BiFirstPage,
   BiGrid,
-  BiListCheck,
   BiTable,
-  BiUser,
 } from "react-icons/bi";
 import { Link, useLocation } from "react-router";
 import { NavItem } from "../../interfaces/pages/sidebar";
@@ -17,35 +14,17 @@ const navItems: NavItem[] = [
   {
     icon: <BiGrid />,
     name: "Dashboard",
-    subItems: [{ name: "dashboard", path: "/admin/dashboard" }, { name: "Parcelas", path: "/admin/parcelas", pro: false }],
+    path: "/admin/dashboard"
   },
   {
     icon: <BiCalendar />,
-    name: "Calendar",
-    path: "/calendar",
+    name: "Parcelas",
+    path: "/admin/parcelas",
   },
   {
-    icon: <BiUser />,
-    name: "User Profile",
-    path: "/profile",
-  },
-  {
-    name: "Forms",
-    icon: <BiListCheck />,
-    subItems: [{ name: "Form Elements", path: "/form-elements", pro: false }],
-  },
-  {
-    name: "Tables",
     icon: <BiTable />,
-    subItems: [{ name: "Basic Tables", path: "/basic-tables", pro: false }],
-  },
-  {
-    name: "Pages",
-    icon: <BiFirstPage />,
-    subItems: [
-      { name: "Blank Page", path: "/blank", pro: false },
-      { name: "404 Error", path: "/error-404", pro: false },
-    ],
+    name: "Parcelas Inactivas",
+    path: "/admin/parcelas/inactivas",
   },
 ];
 
@@ -262,13 +241,13 @@ const AppSidebar: React.FC = () => {
     >
       <div
         className={`py-8 flex ${
-          !isExpanded && !isHovered ? "lg:justify-center" : "justify-start"
+          !isExpanded && !isHovered ? "lg:justify-center" : "justify-center"
         }`}
       >
         <Link to="/">
           {isExpanded || isHovered || isMobileOpen ? (
             <>
-              <img className="" src={logo} alt="'Logo'" width={150} height={40} />
+              <img className="" src={logo} alt="'Logo'" width={75} height={10} />
             </>
           ) : (
             <img src={logo} alt="'Logo'" width={32} height={32} />
