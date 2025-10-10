@@ -1,6 +1,23 @@
 import React from "react";
+import { useGetSensorsQuery } from "../../../services/api";
+import { useSensorSocket } from "../../../hooks/useSensorSocket";
+import { FixedSizeList as List } from "react-window";
+import { useState } from "react";
 
 const Index: React.FC = () => {
+  const { data: sensors = [], isLoading, isError } = useGetSensorsQuery();
+  const lastTemperatureSocket = useSensorSocket("http://localhost:3000");
+
+  // Buscar el último valor de temperatura en el snapshot inicial
+  const lastTemperatureFromApi = sensors.find(
+    (s: any) => s.sensorType.toLowerCase().includes("temp")
+  );
+
+  // Decidir qué mostrar: primero socket, si no hay, usar API
+  const lastTemperature = lastTemperatureSocket ?? lastTemperatureFromApi;
+
+  const [pageSize, setPageSize] = useState(50);
+
   // Datos simulados para el dashboard
   const currentDate = new Date().toLocaleDateString("es-ES", {
     weekday: "long",
@@ -150,7 +167,9 @@ const Index: React.FC = () => {
               <div className="space-y-4">
                 <div className="flex items-center p-3 bg-green-50 dark:bg-emerald-800 rounded-lg">
                   <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
-                    <span className="text-white   font-semibold text-sm">P1</span>
+                    <span className="text-white   font-semibold text-sm">
+                      P1
+                    </span>
                   </div>
                   <div className="ml-4 flex-1">
                     <p className="text-sm font-medium text-gray-900 dark:text-white ">
@@ -229,14 +248,19 @@ const Index: React.FC = () => {
                     </svg>
                   </div>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    24°C
-                  </p>
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    Soleado
-                  </p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Humedad: 65% | Viento: 8 km/h
-                  </p>
+                      {lastTemperature
+                        ? `${lastTemperature.value}°${lastTemperature.unit || "C"}`
+                        : "—"}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {lastTemperature ? "Dato en tiempo real" : "Esperando datos..."}
+                    </p>
+                    {lastTemperature?.timestamp && (
+                      <p className="text-xs text-gray-500 mt-2">
+                        Última actualización:{" "}
+                        {new Date(lastTemperature.timestamp).toLocaleTimeString()}
+                      </p>
+                    )}
                 </div>
               </div>
             </div>
@@ -276,6 +300,61 @@ const Index: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Sensores */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Sensores
+            </h3>
+            {/* Selector de cantidad */}
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="text-sm border rounded px-2 py-1 dark:bg-gray-700 dark:text-white"
+            >
+              {[10, 50, 100, 1000, sensors.length].map((size) => (
+                <option key={size} value={size}>
+                  {size === sensors.length ? "Todos" : size}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="p-6">
+            {isLoading && (
+              <p className="text-sm text-gray-500">Cargando sensores...</p>
+            )}
+            {isError && (
+              <p className="text-sm text-red-500">Error cargando sensores</p>
+            )}
+            {!isLoading && !isError && (
+              <List
+                height={300} // altura del contenedor
+                itemCount={Math.min(pageSize, sensors.length)}
+                itemSize={45} // altura de cada fila
+                width={"100%"}
+              >
+                {({ index, style }) => {
+                  const s = sensors[index];
+                  return (
+                    <div
+                      style={style}
+                      className="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-700 rounded mb-1"
+                    >
+                      <span className="font-medium text-gray-800 dark:text-gray-200">
+                        {s.sensorType} {s.sensorId && `(${s.sensorId})`}
+                      </span>
+                      <span className="text-gray-600 dark:text-gray-300">
+                        {s.value} {s.unit}
+                      </span>
+                    </div>
+                  );
+                }}
+              </List>
+            )}
           </div>
         </div>
 
