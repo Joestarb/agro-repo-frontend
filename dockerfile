@@ -13,7 +13,7 @@ COPY pnpm-lock.yaml ./
 COPY apps/agro-repo-frontend/package.json apps/agro-repo-frontend/
 
 # Instalar dependencias
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Copiar el código fuente del frontend
 COPY apps/agro-repo-frontend apps/agro-repo-frontend
